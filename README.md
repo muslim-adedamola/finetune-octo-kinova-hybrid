@@ -19,7 +19,7 @@ This repository contains a practical research-engineering pipeline for adapting 
 
 ## Demo
 
-**demo1.mp4**
+[**demo1.mp4**](https://github.com/user-attachments/assets/5599fbc7-ce52-4e97-856b-1d25c4c96401)
 
 > Real-robot rollout shown at 2× speed.
 
