@@ -19,8 +19,7 @@ This repository contains a practical research-engineering pipeline for adapting 
 
 ## Demo
 
-https://github.com/user-attachments/assets/5599fbc7-ce52-4e97-856b-1d25c4c96401
-
+**demo1.mp4**
 
 > Real-robot rollout shown at 2× speed.
 
@@ -29,18 +28,18 @@ https://github.com/user-attachments/assets/5599fbc7-ce52-4e97-856b-1d25c4c96401
 ## Pretrained Checkpoint
 
 Downloadable checkpoint as used in demo videos is made available here:
-
 > **Best checkpoint:** [Download from Google Drive](https://drive.google.com/file/d/1Eiv2iN5whw7qQazFhIcdwFJOwBmYghiL/view?usp=sharing)
 
 Expected checkpoint structure after extraction:
 
-```text
+```
 best/
   checkpoint_*
 ```
+
 Example Usage:
 
-```bash
+```
 python scripts/deployment/run_finetuned_hybrid_model.py \
   --checkpoint_path /path/to/downloaded/best \
   --goal_image_path /path/to/goal_image.png \
@@ -72,7 +71,7 @@ The RealSense frame is cropped and resized to 256×256 so that the live inferenc
 ## Real-Robot Demos
 
 | Demo | Description |
-|---|---|
+| --- | --- |
 | [White bottle rollout](assets/demos/demo1.mp4) | In-distribution bottle used during training |
 | [White bottle, new position](assets/demos/demo2.mp4) | Same bottle type, different initial position |
 | [Additional white-bottle rollout](assets/demos/demo3.mp4) | Additional in-distribution rollout |
@@ -88,7 +87,7 @@ The policy was trained only on the white bottle, so unseen bottle-color rollouts
 
 The pipeline follows this flow:
 
-```text
+```
 Raw Kinova Gen 3 demonstrations
 → TFDS/RLDS dataset builder
 → Octo-compatible standardization
@@ -115,7 +114,7 @@ During deployment:
 
 Rollout settings used:
 
-```bash
+```
 --control_mode auto_receding_horizon \
 --arm_chunk_index 1 \
 --gripper_chunk_index 3
@@ -125,13 +124,25 @@ Rollout settings used:
 
 ## Repository Structure
 
-```text
+```
 finetune-octo-kinova-hybrid/
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
 │
 ├── scripts/
+│   ├── calibration/
+│   │   ├── collect_calibration_data.py      ← stage 1: move arm + collect ChArUco frames
+│   │   └── run_calibration.py               ← stage 2: solve for T_BASE_CAMERA
+│   │
+│   ├── collection/
+│   │   ├── collect_episode.py               ← main data collection entry point
+│   │   ├── episode_logger.py                ← EpisodeLogger, RealSenseLatestRGB
+│   │   ├── trajectory_primitives.py         ← PD controller, motion primitives
+│   │   ├── camera_config.py                 ← intrinsics, extrinsics, object constants
+│   │   ├── detect_bottle_live.py            ← live detection diagnostic
+│   │   └── arm_frame_grabber.py             ← threaded RTSP frame reader
+│   │
 │   ├── dataset/
 │   │   ├── kinova_dataset/
 │   │   │   ├── __init__.py
@@ -158,6 +169,8 @@ finetune-octo-kinova-hybrid/
 │   └── images/
 │
 ├── docs/
+│   ├── COLLECTION.md
+│   ├── CALIBRATION.md
 │   ├── SETUP.md
 │   ├── DATASET.md
 │   ├── TRAINING.md
@@ -175,14 +188,14 @@ This project assumes you already have a working Octo environment.
 
 Clone this repository:
 
-```bash
+```
 git clone https://github.com/muslim-adedamola/finetune-octo-kinova-hybrid.git
 cd finetune-octo-kinova-hybrid
 ```
 
 Install additional dependencies as needed:
 
-```bash
+```
 pip install -r requirements.txt
 ```
 
@@ -201,11 +214,51 @@ The Kinova deployment script requires a working Kortex API installation and acce
 
 ---
 
+## Calibration
+
+Before collecting episodes, the camera must be calibrated to obtain `T_BASE_CAMERA` — the transform from camera frame to robot base frame used for world-coordinate projection.
+
+See **[docs/CALIBRATION.md](docs/CALIBRATION.md)** for the full two-stage hand-eye calibration procedure.
+
+Quick start:
+
+```
+# Stage 1: collect paired (image, robot pose) data
+python scripts/calibration/collect_calibration_data.py --n_poses 30
+
+# Stage 2: solve for T_BASE_CAMERA
+python scripts/calibration/run_calibration.py
+```
+
+Copy the printed matrix into `scripts/collection/camera_config.py`.
+
+---
+
+## Data Collection
+
+The full scripted data collection pipeline is in `scripts/collection/`. It covers YOLOE-based bottle detection, world-coordinate projection, PD-controlled pick-and-lift execution, and per-timestep logging to the episode format used by the TFDS builder.
+
+See **[docs/COLLECTION.md](docs/COLLECTION.md)** for setup instructions, calibration steps, and usage.
+
+Quick start (one episode):
+
+```
+python scripts/collection/collect_episode.py \
+  --out_root /path/to/kinova_bottle_lift_raw \
+  --hz 10 \
+  --lift_height 0.20 \
+  --hold_time 2.0
+```
+
+Press **ESC** at any point to abort and discard the episode.
+
+---
+
 ## Dataset Preparation
 
 The raw Kinova Gen 3 (7 DoF) demonstrations are expected in this format:
 
-```text
+```
 <data_dir>/downloads/manual/kinova_dataset_2/episodes/
   episode_000/
     episode.csv
@@ -223,7 +276,7 @@ The raw Kinova Gen 3 (7 DoF) demonstrations are expected in this format:
 
 Build the TFDS/RLDS dataset:
 
-```bash
+```
 tfds build scripts/dataset/kinova_dataset \
   --overwrite \
   --data_dir /path/to/tensorflow_datasets \
@@ -232,7 +285,7 @@ tfds build scripts/dataset/kinova_dataset \
 
 Validate one episode:
 
-```bash
+```
 python scripts/dataset/validate_one_episode.py \
   --data_dir /path/to/tensorflow_datasets \
   --config default \
@@ -241,7 +294,7 @@ python scripts/dataset/validate_one_episode.py \
 
 Print train/val episode split:
 
-```bash
+```
 python scripts/dataset/print_episode_dir.py
 ```
 
@@ -250,21 +303,21 @@ python scripts/dataset/print_episode_dir.py
 ## Dataset Availability
 
 A converted TFDS/RLDS version of the Kinova bottle pick-and-lift dataset is available here (size is 936 MB):
-
 > **Converted TFDS/RLDS dataset:** [Download from Google Drive](https://drive.google.com/file/d/1gVG1LpR4IPke7KlWEkE2oC9X1H8BMIbQ/view?usp=sharing)
 
 Expected extracted structure:
 
-```text
+```
 kinova_dataset/
 └── default/
     └── 0.1.5/
 ```
+
 Just go ahead and paste this kinova_dataset/ folder into your tensorflow directory
 
 Example Usage:
 
-```bash
+```
 python scripts/training/finetune_hybrid_octo_bce.py \
   --tfds_data_dir /path/to/tensorflow_datasets \
   --dataset_name kinova_dataset \
@@ -273,10 +326,9 @@ python scripts/training/finetune_hybrid_octo_bce.py \
 ```
 
 If you prefer to build the tfds/rlds version of the raw dataset demos (bottle pick and lift) yourself, The download link is here:
-
 > **[Link to download Raw Dataset](https://drive.google.com/file/d/1DxAAcv0oV7qoBO6aO62Omon7kLr4Cql9/view?usp=sharing)**
 
-To collect similar demos on your robot, the expected raw data format used in this repo is documented in [docs/DATASET.md](docs/DATASET.md).
+To collect similar demos on your robot, see [docs/COLLECTION.md](docs/COLLECTION.md) for the full data collection pipeline, and [docs/DATASET.md](docs/DATASET.md) for the expected raw data format.
 
 ---
 
@@ -284,13 +336,13 @@ To collect similar demos on your robot, the expected raw data format used in thi
 
 The training and evaluation scripts expect the Kinova standardization function to be importable from the Octo package path:
 
-```python
+```
 from octo.data.kinova_standardize_octo import kinova_rlds_to_octo
 ```
 
 Copy the standardization file into your local Octo source tree:
 
-```bash
+```
 cp scripts/dataset/kinova_standardize_octo.py /path/to/octo/octo/data/kinova_standardize_octo.py
 ```
 
@@ -300,7 +352,7 @@ cp scripts/dataset/kinova_standardize_octo.py /path/to/octo/octo/data/kinova_sta
 
 Run hybrid finetuning:
 
-```bash
+```
 python scripts/training/finetune_hybrid_octo_bce.py \
   --tfds_data_dir /path/to/tensorflow_datasets \
   --save_dir ./checkpoints/finetune_ckpts_hybrid_arm_diffusion_gripper_bce \
@@ -317,7 +369,7 @@ python scripts/training/finetune_hybrid_octo_bce.py \
 
 The script saves:
 
-```text
+```
 checkpoints/
   finetune_ckpts_hybrid_arm_diffusion_gripper_bce/
     checkpoint_*
@@ -332,7 +384,7 @@ checkpoints/
 
 Run per-episode offline evaluation:
 
-```bash
+```
 python scripts/evaluation/eval_hybrid_octo_bce.py \
   --checkpoint_path ./checkpoints/finetune_ckpts_hybrid_arm_diffusion_gripper_bce/best \
   --tfds_data_dir /path/to/tensorflow_datasets \
@@ -342,7 +394,7 @@ python scripts/evaluation/eval_hybrid_octo_bce.py \
 
 Run gripper trace diagnostics:
 
-```bash
+```
 python scripts/evaluation/eval_gripper_traces.py \
   --checkpoint_path ./checkpoints/finetune_ckpts_hybrid_arm_diffusion_gripper_bce/best \
   --tfds_data_dir /path/to/tensorflow_datasets \
@@ -358,7 +410,7 @@ python scripts/evaluation/eval_gripper_traces.py \
 
 Run live inference in shadow mode first:
 
-```bash
+```
 python scripts/deployment/run_finetuned_hybrid_model.py \
   --checkpoint_path ./checkpoints/finetune_ckpts_hybrid_arm_diffusion_gripper_bce/best \
   --goal_image_path /path/to/goal_image.png \
@@ -372,13 +424,13 @@ python scripts/deployment/run_finetuned_hybrid_model.py \
 
 To execute robot actions, add:
 
-```bash
+```
 --execute_actions
 ```
 
 Example execution command:
 
-```bash
+```
 python scripts/deployment/run_finetuned_hybrid_model.py \
   --checkpoint_path ./checkpoints/finetune_ckpts_hybrid_arm_diffusion_gripper_bce/best \
   --goal_image_path /path/to/goal_image.png \
@@ -414,6 +466,8 @@ Before using `--execute_actions`:
 - keep the workspace clear;
 - supervise the robot continuously.
 
+The same precautions apply during data collection. See [docs/COLLECTION.md](docs/COLLECTION.md) for collection-specific safety guidance.
+
 ---
 
 ## Scope and Current Status
@@ -428,14 +482,12 @@ Current scope:
 - Unseen bottle-color rollouts are successful qualitative demonstrations; a larger quantitative generalization benchmark is left for future work.
 - Real-robot deployment currently assumes a Kinova arm, Kinova Kortex API, and Intel RealSense RGB input.
 - Multi-robot support would mainly require robot-specific data collection and deployment wrappers; the current release provides the Kinova implementation.
-- Dataset collection scripts will be added in a future update. The data collection pipeline used for this project was scripted and partially automated.
 - The current deployed policy can exhibit some delay after reaching the bottle before closing the gripper. This behavior is visible in some rollouts and remains an open deployment-timing improvement.
 
 ## Future Work
 
 Planned next steps include:
 
-- adding the scripted/partially automated Kinova data collection pipeline used to collect the demonstrations;
 - improving deployment timing, especially the short delay observed after the robot reaches the bottle before closing the gripper;
 - finetuning Octo on a longer-horizon Kinova manipulation task beyond single bottle pick-and-lift;
 - extending the deployment layer to support additional robot arms through robot-specific wrappers.
